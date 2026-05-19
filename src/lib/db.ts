@@ -6,7 +6,6 @@ import type { Migration, PluginDb, RunResult } from "./types.js";
 
 const require = createRequire(import.meta.url);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DatabaseSync = any;
 
 let SqliteDatabase: (new (path: string) => DatabaseSync) | undefined;
@@ -21,52 +20,53 @@ export function isNodeSqliteAvailable(): boolean {
   return SqliteDatabase !== undefined;
 }
 
+/**
+ * The portion of the SignalK plugin app object that we need. We use the
+ * server-provided `getDataDirPath()` so the database lives under the
+ * plugin's standard data dir (`{configPath}/plugin-config-data/<id>/`)
+ * — no direct access to `app.config.configPath`.
+ */
 interface AppLike {
-  config?: { configPath?: string };
+  getDataDirPath(): string;
 }
+
+const DB_FILENAME = "db.sqlite";
 
 const cache: Map<string, PluginDb> = new Map();
 const rawCache: Map<string, DatabaseSync> = new Map();
 
-function cacheKey(configPath: string, pluginId: string): string {
-  return `${configPath}::${pluginId}`;
-}
-
-export function pluginDbPath(configPath: string, pluginId: string): string {
-  return path.join(configPath, "plugin-db", `${pluginId}.db`);
+/** Path the library writes to for a given app. Exported for tests + tooling. */
+export function pluginDbPath(app: AppLike): string {
+  return path.join(app.getDataDirPath(), DB_FILENAME);
 }
 
 /**
- * Opens (or returns the cached) PluginDb for the given plugin id under
- * the signalk-server's configPath. Safe to call from any plugin at any
- * time — `signalk-database` does not need to be started for this to work.
+ * Opens (or returns the cached) PluginDb for the calling plugin. The DB
+ * lives at `{configPath}/plugin-config-data/<pluginId>/db.sqlite`, which
+ * the server's `app.getDataDirPath()` creates and isolates per plugin —
+ * a plugin cannot reach another plugin's data through this API.
+ *
+ * Safe to call from any plugin at any time. `signalk-database` does not
+ * need to be started for this to work.
  */
-export async function openPluginDb(
-  app: AppLike,
-  pluginId: string,
-): Promise<PluginDb> {
+export async function openPluginDb(app: AppLike): Promise<PluginDb> {
   if (!SqliteDatabase) {
     throw new Error(
       "signalk-database: node:sqlite is not available — requires Node.js 22.5.0 or newer",
     );
   }
-  const configPath = app.config?.configPath;
-  if (typeof configPath !== "string" || configPath.length === 0) {
+  if (typeof app?.getDataDirPath !== "function") {
     throw new Error(
-      "signalk-database: app.config.configPath is missing or empty",
+      "signalk-database: app.getDataDirPath is not a function — pass the SignalK plugin app object",
     );
   }
-  if (!/^[A-Za-z0-9._-]+$/.test(pluginId)) {
-    throw new Error(`signalk-database: invalid pluginId: ${pluginId}`);
-  }
+  const dbDir = app.getDataDirPath();
+  const dbPath = path.join(dbDir, DB_FILENAME);
 
-  const key = cacheKey(configPath, pluginId);
-  const hit = cache.get(key);
+  const hit = cache.get(dbPath);
   if (hit) return hit;
 
-  const dbDir = path.join(configPath, "plugin-db");
   fs.mkdirSync(dbDir, { recursive: true });
-  const dbPath = pluginDbPath(configPath, pluginId);
 
   const db = new SqliteDatabase!(dbPath);
   db.exec("PRAGMA journal_mode = WAL");
@@ -75,9 +75,9 @@ export async function openPluginDb(
     "CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
   );
 
-  rawCache.set(key, db);
+  rawCache.set(dbPath, db);
   const handle = wrap(db);
-  cache.set(key, handle);
+  cache.set(dbPath, handle);
   return handle;
 }
 

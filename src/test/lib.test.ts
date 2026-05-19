@@ -11,12 +11,22 @@ import {
   isNodeSqliteAvailable,
 } from "../lib/db.js";
 
-function tmpConfigPath(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "signalk-database-test-"));
-}
-
-function appWith(configPath: string) {
-  return { config: { configPath } };
+/**
+ * Helper: simulate signalk-server's per-plugin data dir contract.
+ * The server creates `{configPath}/plugin-config-data/<pluginId>/` and
+ * hands that path to the plugin via `app.getDataDirPath()`. We mirror
+ * that here without needing a real server.
+ */
+function tmpApp(id = "test-plugin"): { getDataDirPath(): string; dir: string } {
+  const cfg = fs.mkdtempSync(path.join(os.tmpdir(), "signalk-database-test-"));
+  const dir = path.join(cfg, "plugin-config-data", id);
+  fs.mkdirSync(dir, { recursive: true });
+  return {
+    dir,
+    getDataDirPath() {
+      return dir;
+    },
+  };
 }
 
 afterEach(async () => {
@@ -28,44 +38,36 @@ test("openPluginDb throws if node:sqlite unavailable", async () => {
     assert.equal(isNodeSqliteAvailable(), true);
     return;
   }
-  await assert.rejects(() =>
-    openPluginDb(appWith(tmpConfigPath()), "test-plugin"),
-  );
+  await assert.rejects(() => openPluginDb(tmpApp()));
 });
 
-test("openPluginDb creates the directory and file", async () => {
+test("openPluginDb creates the file at <dataDir>/db.sqlite", async () => {
   if (!isNodeSqliteAvailable()) return;
-  const cfg = tmpConfigPath();
-  await openPluginDb(appWith(cfg), "test-plugin");
-  assert.ok(fs.existsSync(path.join(cfg, "plugin-db")));
-  assert.ok(fs.existsSync(pluginDbPath(cfg, "test-plugin")));
+  const app = tmpApp("my-plugin");
+  await openPluginDb(app);
+  assert.equal(pluginDbPath(app), path.join(app.dir, "db.sqlite"));
+  assert.ok(fs.existsSync(pluginDbPath(app)));
 });
 
 test("openPluginDb returns a cached handle across calls", async () => {
   if (!isNodeSqliteAvailable()) return;
-  const cfg = tmpConfigPath();
-  const a = await openPluginDb(appWith(cfg), "cached");
-  const b = await openPluginDb(appWith(cfg), "cached");
+  const app = tmpApp("cached");
+  const a = await openPluginDb(app);
+  const b = await openPluginDb(app);
   assert.strictEqual(a, b);
 });
 
-test("openPluginDb rejects missing or empty configPath", async () => {
+test("openPluginDb rejects an app without getDataDirPath", async () => {
   if (!isNodeSqliteAvailable()) return;
-  await assert.rejects(() => openPluginDb({ config: { configPath: "" } }, "x"));
-  await assert.rejects(() => openPluginDb({} as never, "x"));
-});
-
-test("openPluginDb rejects suspicious plugin ids", async () => {
-  if (!isNodeSqliteAvailable()) return;
-  const cfg = tmpConfigPath();
-  await assert.rejects(() => openPluginDb(appWith(cfg), "../escape"));
-  await assert.rejects(() => openPluginDb(appWith(cfg), "with spaces"));
-  await assert.rejects(() => openPluginDb(appWith(cfg), ""));
+  await assert.rejects(() => openPluginDb({} as never));
+  await assert.rejects(() =>
+    openPluginDb({ getDataDirPath: "not-a-fn" } as never),
+  );
 });
 
 test("PluginDb run/query/transaction round-trip", async () => {
   if (!isNodeSqliteAvailable()) return;
-  const db = await openPluginDb(appWith(tmpConfigPath()), "roundtrip");
+  const db = await openPluginDb(tmpApp("roundtrip"));
 
   await db.run(
     "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
@@ -105,7 +107,7 @@ test("PluginDb run/query/transaction round-trip", async () => {
 
 test("migrate applies pending versions in order and is idempotent", async () => {
   if (!isNodeSqliteAvailable()) return;
-  const db = await openPluginDb(appWith(tmpConfigPath()), "migrations");
+  const db = await openPluginDb(tmpApp("migrations"));
 
   await db.migrate([
     { version: 1, sql: "CREATE TABLE t (a INTEGER)" },

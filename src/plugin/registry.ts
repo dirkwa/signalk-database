@@ -6,7 +6,6 @@ import type { PluginDbInfo } from "../lib/types.js";
 
 const require = createRequire(import.meta.url);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DatabaseSync = any;
 
 let SqliteDatabase: (new (path: string) => DatabaseSync) | undefined;
@@ -17,49 +16,55 @@ try {
   // node:sqlite not available — Registry construction will throw
 }
 
+const DB_FILENAME = "db.sqlite";
+const ID_RE = /^[A-Za-z0-9._-]+$/;
+
 /**
- * File-scan based registry. Looks at `{configPath}/plugin-db/*.db` to
- * enumerate every plugin database, regardless of whether any plugin has
- * opened a handle to it in this process. Used only by the admin UI; the
- * library-side openPluginDb() in src/lib/db.ts is independent of this.
+ * File-scan based registry. Walks `{configPath}/plugin-config-data/<pluginId>/db.sqlite`
+ * to enumerate every plugin database, regardless of whether any plugin
+ * has opened a handle to it in this process. Used only by the admin UI;
+ * the library-side openPluginDb() in src/lib/db.ts is independent of this.
+ *
+ * The root is derived from `path.dirname(app.getDataDirPath())` — the
+ * plugin doesn't access `app.config.configPath` directly. This is the only
+ * place in signalk-database that reaches across plugin scopes, which is
+ * appropriate for the admin/inspector role.
  */
 export class Registry {
-  private dbDir: string;
+  private rootDir: string;
   private roHandles: Map<string, DatabaseSync> = new Map();
 
-  constructor(configPath: string) {
+  constructor(parentDir: string) {
     if (!SqliteDatabase) {
       throw new Error(
         "signalk-database: node:sqlite is not available — requires Node.js 22.5.0 or newer",
       );
     }
-    this.dbDir = path.join(configPath, "plugin-db");
-    fs.mkdirSync(this.dbDir, { recursive: true });
+    this.rootDir = parentDir;
   }
 
   list(): PluginDbInfo[] {
     const entries: PluginDbInfo[] = [];
     let names: string[];
     try {
-      names = fs.readdirSync(this.dbDir);
+      names = fs.readdirSync(this.rootDir);
     } catch {
       return [];
     }
-    for (const name of names) {
-      if (!name.endsWith(".db")) continue;
-      const id = name.slice(0, -3);
-      if (!/^[A-Za-z0-9._-]+$/.test(id)) continue;
-      const full = path.join(this.dbDir, name);
+    for (const id of names) {
+      if (!ID_RE.test(id)) continue;
+      const dbPath = path.join(this.rootDir, id, DB_FILENAME);
       try {
-        const stat = fs.statSync(full);
+        const stat = fs.statSync(dbPath);
+        if (!stat.isFile()) continue;
         entries.push({
           id,
-          path: full,
+          path: dbPath,
           sizeBytes: stat.size,
           modifiedAt: stat.mtime.toISOString(),
         });
       } catch {
-        // ignore unreadable files
+        // not a plugin with a db — skip silently
       }
     }
     entries.sort((a, b) => a.id.localeCompare(b.id));
@@ -67,21 +72,34 @@ export class Registry {
   }
 
   /**
-   * Open or return a cached read-only handle for the given DB id.
-   * Returns undefined if no such file exists.
+   * Open or return a cached read-only handle for the given plugin id.
+   * Returns undefined if the plugin has no `db.sqlite` in its data dir.
    */
   getReadOnly(id: string): DatabaseSync | undefined {
-    if (!/^[A-Za-z0-9._-]+$/.test(id)) return undefined;
+    if (!ID_RE.test(id)) return undefined;
     const cached = this.roHandles.get(id);
     if (cached) return cached;
 
-    const full = path.join(this.dbDir, `${id}.db`);
-    if (!fs.existsSync(full)) return undefined;
+    const dbPath = path.join(this.rootDir, id, DB_FILENAME);
+    let stat;
+    try {
+      stat = fs.statSync(dbPath);
+    } catch {
+      return undefined; // file missing or unreadable
+    }
+    if (!stat.isFile()) return undefined; // dir or symlink-to-dir at that path
 
-    const db = new SqliteDatabase!(full);
-    db.exec("PRAGMA query_only = ON");
-    this.roHandles.set(id, db);
-    return db;
+    try {
+      const db = new SqliteDatabase!(dbPath);
+      db.exec("PRAGMA query_only = ON");
+      this.roHandles.set(id, db);
+      return db;
+    } catch {
+      // corrupt file, locked, permission denied — treat as not openable.
+      // Returning undefined lets routes respond 404 instead of leaking
+      // an internal sqlite error to the HTTP layer.
+      return undefined;
+    }
   }
 
   close(): void {

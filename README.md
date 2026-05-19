@@ -26,7 +26,7 @@ export default function (app) {
     id: 'my-plugin',
     name: 'My Plugin',
     async start() {
-      db = await openPluginDb(app, 'my-plugin');
+      db = await openPluginDb(app);
       await db.migrate([
         {
           version: 1,
@@ -52,7 +52,7 @@ interface PluginDb {
 }
 ```
 
-Each plugin's database lives at `{configPath}/plugin-db/{pluginId}.db` (WAL mode, foreign keys on). Calls to `openPluginDb(app, pluginId)` cache the handle, so repeated calls for the same id return the same instance.
+Each plugin's database lives at `{configPath}/plugin-config-data/{pluginId}/db.sqlite` — the standard SignalK plugin data directory that `app.getDataDirPath()` returns. The library never touches `app.config.configPath` directly, so a plugin cannot reach across into another plugin's data. WAL mode, foreign keys on. Repeated calls to `openPluginDb(app)` return the cached handle.
 
 ## For server admins
 
@@ -64,7 +64,7 @@ Visit `http://<your-server>/signalk-database/` for the web admin UI. It:
 - Shows tables, schemas, indexes, foreign keys
 - Pages through table rows (read-only)
 
-The admin UI **file-scans** `{configPath}/plugin-db/*.db`, so it sees every database regardless of whether the owning plugin is currently running.
+The admin UI **file-scans** `{configPath}/plugin-config-data/*/db.sqlite`, so it sees every database regardless of whether the owning plugin is currently running. This is the only place in `signalk-database` that walks across plugin scopes, which is appropriate for an admin/inspector role.
 
 ## Requirements
 
