@@ -102,6 +102,54 @@ export class Registry {
     }
   }
 
+  /**
+   * Produce a consistent point-in-time copy of the given plugin's DB at
+   * `destPath` via `VACUUM INTO`. Safe to call against a live DB: VACUUM
+   * INTO acquires a brief read lock on the source, walks every page, and
+   * writes a defragmented copy to the destination. The source plugin
+   * keeps running.
+   *
+   * The destination must not already exist (SQLite refuses to overwrite).
+   * Opens its own fresh writeable connection because `PRAGMA query_only`
+   * on the cached `getReadOnly` handle blocks VACUUM INTO.
+   *
+   * Throws if the id is invalid or the source has no `db.sqlite`. The
+   * caller (routes.ts) maps these to 404. Any sqlite error from the
+   * VACUUM itself also throws — the caller maps to 500.
+   */
+  vacuumInto(id: string, destPath: string): void {
+    if (!ID_RE.test(id)) {
+      throw new Error(`invalid id: ${id}`);
+    }
+    const srcPath = path.join(this.rootDir, id, DB_FILENAME);
+    let stat;
+    try {
+      stat = fs.statSync(srcPath);
+    } catch {
+      throw new Error(`database not found: ${id}`);
+    }
+    if (!stat.isFile()) {
+      throw new Error(`database not found: ${id}`);
+    }
+    // SQLite refuses VACUUM INTO if the destination exists.
+    if (fs.existsSync(destPath)) {
+      throw new Error(`destination already exists: ${destPath}`);
+    }
+
+    const db = new SqliteDatabase!(srcPath);
+    try {
+      // node:sqlite doesn't have a parameter-binding form for VACUUM, so
+      // we manually escape the path (only single quotes can be ambiguous
+      // inside a SQL string literal). The destPath is constructed by our
+      // own route handler from os.tmpdir() + a server-generated name,
+      // never from user input — so this is belt-and-braces.
+      const escaped = destPath.replace(/'/g, "''");
+      db.exec(`VACUUM INTO '${escaped}'`);
+    } finally {
+      db.close();
+    }
+  }
+
   close(): void {
     for (const db of this.roHandles.values()) {
       try {
