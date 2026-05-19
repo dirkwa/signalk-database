@@ -186,6 +186,7 @@ If you ever rename the repo or move it to another org, the trusted-publisher ent
 
 - **401 `provenance attestation: unauthorized`** — trusted publishing not configured, or repo/workflow name in the npmjs trusted-publisher entry doesn't match. See above.
 - **403 `you do not have permission to publish`** — npm account doesn't own the package, or 2FA-on-publish is enabled and the OIDC bypass isn't set up (trusted publishing also covers this).
+- **422 `Error verifying sigstore provenance bundle: package.json: "repository.url" is "...", expected to match "<URL>" from provenance`** — `package.json` either lacks a `repository` field or its `url` doesn't match the GitHub repo signing the provenance. npm cross-checks the two as a security measure. Fix: ensure `package.json` has `"repository": { "type": "git", "url": "git+https://github.com/<owner>/<repo>.git" }` with the URL matching the actual repo (no trailing slash, no `git@` form), commit, re-tag.
 - **Hook / build failure pre-publish** — the workflow runs `npm install` then `npm run build` then `npm publish`. Reproduce locally: `rm -rf node_modules dist dist-test public && npm install && npm run build`. If clean local build passes but CI doesn't, the divergence is usually an env var or Node minor.
 
 > Never `npm publish` manually unless asked. Don't `git push` (incl. tags) without explicit approval.
