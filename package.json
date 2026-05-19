@@ -1,0 +1,20 @@
+{
+  "name": "signalk-database",
+  "version": "0.0.1",
+  "description": "Database / persistence plugin for SignalK Node Server (skeleton — implementation pending)",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"no tests yet\" && exit 0"
+  },
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-utility"
+  ],
+  "author": "Dirk",
+  "license": "Apache-2.0",
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ]
+}
