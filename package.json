@@ -47,13 +47,13 @@
     "LICENSE"
   ],
   "dependencies": {
-    "express": "^4.19.2",
+    "express": "^5.2.1",
     "typebox": "^1.1.38"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
     "@tanstack/react-query": "^5.59.0",
-    "@types/express": "^4.17.21",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.5.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
