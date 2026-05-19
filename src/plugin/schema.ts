@@ -8,7 +8,6 @@ import type {
   TableSchema,
 } from "../lib/types.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DatabaseSync = any;
 
 const SQLITE_INTERNAL_PREFIX = "sqlite_";

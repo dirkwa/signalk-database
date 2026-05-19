@@ -7,7 +7,7 @@ Contributor / agent notes for working in this repo. See [README.md](README.md) f
 `signalk-database` is both a **library** and a **plugin** in the same npm package:
 
 - **Library** — `import { openPluginDb } from 'signalk-database'`. Pure functions; works in any process that has node:sqlite. Doesn't depend on the plugin lifecycle.
-- **Plugin** — when enabled in the SignalK admin UI, mounts a router that serves the web admin (file-scans `{configPath}/plugin-db/*.db`).
+- **Plugin** — when enabled in the SignalK admin UI, mounts a router that serves the web admin (file-scans `{configPath}/plugin-config-data/*/db.sqlite`).
 
 The package `main` points at the plugin entry. The plugin entry **also re-exports** the library API, so a single `main` covers both faces. signalk-server's plugin loader picks up the default export (the plugin factory); consumer plugins importing the package get the named exports (the library).
 
@@ -86,10 +86,11 @@ This matters because: the default `dummysecurity` strategy has no `hasAdminAcces
 
 ## Architecture quick reference
 
-- **`openPluginDb(app, pluginId)`** is independent of the plugin lifecycle. Caches handles in a module-scope `Map`. Creates `{configPath}/plugin-db/{pluginId}.db` if absent, sets WAL + foreign keys, ensures the `_migrations` table.
-- **`Registry`** (admin/UI side) **file-scans** `{configPath}/plugin-db/*.db` for enumeration, and opens a *separate* RO `node:sqlite` handle (`PRAGMA query_only = ON`) per DB for browse routes. WAL mode means the RO browse handle doesn't block the consumer plugin's writes.
+- **`openPluginDb(app)`** is independent of the plugin lifecycle. Caches handles in a module-scope `Map` keyed by absolute DB path. Creates `<app.getDataDirPath()>/db.sqlite` if absent, sets WAL + foreign keys, ensures the `_migrations` table. Note: takes only `app` — never `pluginId`. The data dir is always plugin-scoped by the server, so the library physically cannot reach another plugin's data.
+- **`Registry`** (admin/UI side) is the *only* code that walks across plugin scopes. It takes the parent of `app.getDataDirPath()` (i.e. `{configPath}/plugin-config-data/`) and enumerates `<id>/db.sqlite` files. Opens a separate RO `node:sqlite` handle (`PRAGMA query_only = ON`) per DB for browse routes. WAL mode means the RO browse handle doesn't block the consumer plugin's writes.
 - **The plugin entry mounts the admin UI but plays no role in handing out DB handles.** The library doesn't need the plugin to be enabled.
-- **Identifier validation:** plugin ids (in `lib/db.ts`) and table names (in `plugin/schema.ts`) must match `^[A-Za-z0-9._-]+$`. Anything else throws — prevents path traversal in pluginId and SQL injection via table names.
+- **No direct access to `app.config.configPath`.** The shared SignalK plugin-ci CI flags it; we use `app.getDataDirPath()` instead. The Registry derives the parent dir via `path.dirname()` of our own data dir.
+- **Identifier validation:** plugin ids (in `plugin/registry.ts`) and table names (in `plugin/schema.ts`) must match `^[A-Za-z0-9._-]+$`. Anything else is skipped/rejected — prevents path traversal in pluginId and SQL injection via table names. The library's `openPluginDb(app)` does not validate ids because the server-provided `getDataDirPath()` is the trust boundary.
 
 ## Type strategy
 
@@ -203,4 +204,5 @@ If you ever rename the repo or move it to another org, the trusted-publisher ent
 - **SPDX header on every TypeScript source file.** First line of every `.ts`/`.tsx`/`.d.ts` file in `src/` (and root configs like `vite.config.ts`) is `// SPDX-License-Identifier: Apache-2.0`. No copyright noise — the SPDX short form is the canonical declaration. CodeRabbit enforces this in code review.
 - No CLAUDE.md in the repo tree; use AGENTS.md.
 - Test files: `*.test.ts` under `src/test/`, run via `node:test`.
-- Prettier-only formatting; no ESLint config yet.
+- Prettier for formatting, ESLint (flat-config `eslint.config.js`) for lint. Run `npm run format && npm run lint && npm run build && npm test` before pushing.
+- **No direct `app.config.configPath` access.** Use `app.getDataDirPath()`. The shared SignalK plugin-ci flags violations as warnings.

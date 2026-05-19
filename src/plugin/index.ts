@@ -23,7 +23,7 @@ export type {
 } from "../lib/index.js";
 
 interface SignalKApp {
-  config: { configPath: string };
+  getDataDirPath(): string;
   debug?: (msg: string, ...rest: unknown[]) => void;
   error?: (msg: string, ...rest: unknown[]) => void;
 }
@@ -43,9 +43,13 @@ export default function (app: SignalKApp) {
     },
 
     start() {
-      registry = new Registry(app.config.configPath);
+      // Our own data dir (e.g. {configPath}/plugin-config-data/signalk-database)
+      // sits next to every other plugin's data dir. The admin Registry walks
+      // that parent dir to enumerate sibling plugins' databases.
+      const parentDir = path.dirname(app.getDataDirPath());
+      registry = new Registry(parentDir);
       app.debug?.(
-        `signalk-database admin UI started; scanning ${app.config.configPath}/plugin-db`,
+        `signalk-database admin UI started; scanning ${parentDir}/*/db.sqlite`,
       );
     },
 
