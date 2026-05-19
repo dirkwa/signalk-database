@@ -31,6 +31,14 @@
   },
   "author": "Dirk",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dirkwa/signalk-database.git"
+  },
+  "homepage": "https://github.com/dirkwa/signalk-database#readme",
+  "bugs": {
+    "url": "https://github.com/dirkwa/signalk-database/issues"
+  },
   "files": [
     "dist/",
     "public/",
