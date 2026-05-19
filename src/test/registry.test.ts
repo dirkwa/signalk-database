@@ -84,6 +84,13 @@ test("Registry.getReadOnly opens cached RO handle, undefined for missing", async
   assert.equal(registry.getReadOnly("missing"), undefined);
   assert.equal(registry.getReadOnly("../escape"), undefined);
 
+  // db.sqlite is a directory, not a file — getReadOnly must refuse
+  // (would otherwise attempt to open a dir as a sqlite file, surprising
+  // the caller with an opaque error from node:sqlite)
+  const dirCase = path.join(root, "dir-case");
+  fs.mkdirSync(path.join(dirCase, "db.sqlite"), { recursive: true });
+  assert.equal(registry.getReadOnly("dir-case"), undefined);
+
   // RO handle should refuse writes
   assert.throws(() => ro1!.exec("INSERT INTO t VALUES (3)"));
   registry.close();

@@ -81,12 +81,25 @@ export class Registry {
     if (cached) return cached;
 
     const dbPath = path.join(this.rootDir, id, DB_FILENAME);
-    if (!fs.existsSync(dbPath)) return undefined;
+    let stat;
+    try {
+      stat = fs.statSync(dbPath);
+    } catch {
+      return undefined; // file missing or unreadable
+    }
+    if (!stat.isFile()) return undefined; // dir or symlink-to-dir at that path
 
-    const db = new SqliteDatabase!(dbPath);
-    db.exec("PRAGMA query_only = ON");
-    this.roHandles.set(id, db);
-    return db;
+    try {
+      const db = new SqliteDatabase!(dbPath);
+      db.exec("PRAGMA query_only = ON");
+      this.roHandles.set(id, db);
+      return db;
+    } catch {
+      // corrupt file, locked, permission denied — treat as not openable.
+      // Returning undefined lets routes respond 404 instead of leaking
+      // an internal sqlite error to the HTTP layer.
+      return undefined;
+    }
   }
 
   close(): void {
