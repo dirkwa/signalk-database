@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" width="72" height="72">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="disc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#dbeafe"/>
+    </linearGradient>
+  </defs>
+
+  <!-- White base for opaque rendering on any host background -->
+  <rect width="72" height="72" fill="#ffffff"/>
+  <!-- SignalK blue rounded square -->
+  <rect width="72" height="72" rx="16" fill="url(#bg)"/>
+
+  <!-- Database cylinder stack -->
+  <g transform="translate(36 39)" stroke="#0c2d6b" stroke-width="1.5" stroke-linejoin="round" fill="url(#disc)">
+    <!-- Bottom disc body: left wall, bottom curve forward, right wall, top curve back -->
+    <path d="M -17 17  L -17 12  A 17 5 0 0 0 17 12  L 17 17  A 17 5 0 0 1 -17 17 Z"/>
+    <!-- Middle disc body -->
+    <path d="M -17 5  L -17 0  A 17 5 0 0 0 17 0  L 17 5  A 17 5 0 0 1 -17 5 Z"/>
+    <!-- Top disc body -->
+    <path d="M -17 -7  L -17 -12  A 17 5 0 0 0 17 -12  L 17 -7  A 17 5 0 0 1 -17 -7 Z"/>
+    <!-- Top face: full ellipse rim (drawn last so it sits on top) -->
+    <ellipse cx="0" cy="-12" rx="17" ry="5" fill="url(#disc)"/>
+  </g>
+
+  <!-- SK monogram centered on the top disc face -->
+  <text x="36" y="31"
+        text-anchor="middle"
+        font-family="system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
+        font-weight="800"
+        font-size="11"
+        fill="#0c2d6b"
+        letter-spacing="-0.5">SK</text>
+
+  <!-- Wave under the database -->
+  <path d="M 16 62 Q 22 59 28 62 T 40 62 T 52 62 T 56 62"
+        fill="none"
+        stroke="#ffffff"
+        stroke-opacity="0.55"
+        stroke-width="1.6"
+        stroke-linecap="round"/>
+</svg>
