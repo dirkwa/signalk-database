@@ -47,6 +47,37 @@ SignalK serves these on different paths:
 
 The webapp's API client (`src/webapp/api/client.ts`) hardcodes `/plugins/signalk-database/api` as the base. Don't try to make the API live under the webapp path — the SignalK server's outer admin-authentication middleware is mounted on `/plugins/*` and is what gates our routes.
 
+## HTTP API surface
+
+All routes mount under `/plugins/signalk-database/api/`. Gated by SignalK's outer admin-authentication middleware (see "Auth model" below). Two groups:
+
+### Browse (internal, consumed by our own webapp)
+
+| Route | Purpose |
+| --- | --- |
+| `GET /databases` | Manifest: `{id, path, sizeBytes, modifiedAt}[]` for every plugin DB on disk. |
+| `GET /databases/:id/tables` | `{name, rowCount}[]`. User tables only (`sqlite_*` excluded). |
+| `GET /databases/:id/tables/:table/schema` | Columns, indexes, foreign keys. |
+| `GET /databases/:id/tables/:table/rows?limit=&offset=` | Paginated rows, capped at 500/req. |
+
+The webapp imports types from `src/lib/types.ts`. Free to change shape as the webapp evolves — these are internal contracts.
+
+### Full-export (stable public API, consumed by signalk-backup)
+
+| Route | Purpose |
+| --- | --- |
+| `GET /full-export/databases` | Backup manifest: `{databases: [{id, bytes, modifiedAt}]}`. Mirrors signalk-questdb / signalk-grafana shapes so signalk-backup can treat them uniformly. |
+| `GET /full-export/:id` | `application/octet-stream` of a point-in-time SQLite copy produced via `VACUUM INTO`. |
+
+This contract is **stable** — [signalk-backup's SignalKDatabaseExporter](https://github.com/dirkwa/signalk-backup/blob/main/src/database-export/signalk-database.ts) depends on the exact shape. Don't break it without coordinating a paired bump:
+
+- **Response keys** (`databases`, `id`, `bytes`, `modifiedAt`) — never rename in-place. Add new keys freely.
+- **Status codes** — `200`/`404`/`400`/`500`/`503` per the existing route. signalk-backup's exporter discriminates on these.
+- **Content-Type for `/full-export/:id`** must remain `application/octet-stream` with a `Content-Disposition: attachment` carrying the filename. The exporter streams `res.body` directly to disk.
+- **Path validation** — `^[A-Za-z0-9._-]+$` on the id (matches the lib + registry regex). signalk-backup pre-filters with the same pattern; relaxing here means relaxing there too.
+
+If the contract has to change, do it via a coordinated PR pair (this repo + signalk-backup) bumping our minor and the exporter's tolerated version range together.
+
 ## Build / test loop
 
 ```bash
