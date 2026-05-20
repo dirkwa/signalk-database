@@ -2,7 +2,9 @@
 
 A SQLite library and admin UI for [SignalK Node Server](https://signalk.org/) plugins. Other plugins import `signalk-database` to get an isolated per-plugin SQLite database; the admin webapp browses every database on disk.
 
-**Status:** early development (0.1.0). No server-side cooperation needed — works against stock signalk-server.
+**Status:** early development (0.2.0). No server-side cooperation needed — works against stock signalk-server.
+
+> Backups are handled out-of-band by [signalk-backup](https://github.com/dirkwa/signalk-backup) — see [Backup integration](#backup-integration) below.
 
 ## For plugin authors
 
@@ -12,7 +14,7 @@ Add `signalk-database` as a peer dependency and import the library:
 // package.json
 {
   "peerDependencies": {
-    "signalk-database": "^0.1"
+    "signalk-database": "^0.2"
   }
 }
 ```
@@ -70,6 +72,19 @@ The admin UI **file-scans** `{configPath}/plugin-config-data/*/db.sqlite`, so it
 
 - **Node 22.5.0 or newer.** The library uses `node:sqlite`; older Node versions don't have it.
 - **Admin auth.** The plugin mounts its API under `/plugins/signalk-database/api/*`, which the SignalK server itself wraps in its admin-authentication middleware. When server security is configured, only admin users can reach the API; when it is disabled, the server allows the request through and our routes follow suit.
+
+## Backup integration
+
+[signalk-backup](https://github.com/dirkwa/signalk-backup) (0.5+) ships a built-in exporter for SignalK Database. With both plugins installed:
+
+1. In the SignalK admin UI, open the **Backup** plugin → **Settings** → **Database export**.
+2. Toggle on **Export SignalK Database plugin DBs**.
+
+On every backup tick (and ahead of every manual backup), signalk-backup walks `/plugins/signalk-database/api/full-export/databases`, then for each entry calls `/plugins/signalk-database/api/full-export/<id>` to get a consistent point-in-time copy of that plugin's DB via `VACUUM INTO`. The resulting `db.sqlite` files are staged under `plugin-config-data/signalk-backup/database-exports/signalk-database/<plugin-id>/` and picked up by the next kopia snapshot.
+
+Why this matters: snapshotting the live WAL files directly is not transactionally safe — a torn WAL may need recovery on restore. The `VACUUM INTO` copy is a defragmented single-file snapshot that kopia dedupes efficiently across cycles, and the source plugin keeps running during the backup (brief read lock only).
+
+The HTTP endpoints are also usable directly from `curl` or scripts; they're documented as a stable public API in [AGENTS.md](AGENTS.md#http-api-surface).
 
 ## Why a peer dependency?
 
