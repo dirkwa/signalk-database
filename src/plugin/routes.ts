@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 import express, { type Router } from "express";
+import fs from "node:fs";
+import { createReadStream } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { randomBytes } from "node:crypto";
+import { pipeline } from "node:stream/promises";
 import { getRowsPage, getTableSchema, listTables } from "./schema.js";
 import type { Registry } from "./registry.js";
 
 const MAX_ROWS_PER_PAGE = 500;
+const ID_RE = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Mount the admin API on the plugin router. The SignalK server already
@@ -81,6 +88,95 @@ export function mountRoutes(
       res.json(getRowsPage(db, req.params.table, limit, offset));
     } catch (err) {
       res.status(400).json({ error: errMessage(err) });
+    }
+  });
+
+  // ---------------------------------------------------------------
+  // Full-export endpoints (consumed by signalk-backup or curl)
+  // ---------------------------------------------------------------
+
+  /**
+   * Manifest: every plugin DB available for backup, with size + mtime.
+   * Mirrors the shape signalk-backup's exporters expect (see
+   * signalk-backup/src/database-export/grafana.ts).
+   */
+  api.get("/full-export/databases", (_req, res) => {
+    const registry = getRegistry();
+    if (!registry) {
+      res.status(503).json({ error: "plugin not started" });
+      return;
+    }
+    const databases = registry.list().map((d) => ({
+      id: d.id,
+      bytes: d.sizeBytes,
+      modifiedAt: d.modifiedAt,
+    }));
+    res.json({ databases });
+  });
+
+  /**
+   * Stream a consistent point-in-time copy of one plugin's db.sqlite,
+   * produced via `VACUUM INTO` to a tempfile. The tempfile is unlinked
+   * after the stream completes (or fails).
+   */
+  api.get("/full-export/:id", async (req, res) => {
+    const registry = getRegistry();
+    if (!registry) {
+      res.status(503).json({ error: "plugin not started" });
+      return;
+    }
+    const id = req.params.id;
+    if (!ID_RE.test(id)) {
+      res.status(400).json({ error: `invalid id: ${id}` });
+      return;
+    }
+
+    // Stage the VACUUM INTO output in os.tmpdir() with an unguessable
+    // suffix. Cleanup happens unconditionally in `finally`.
+    const tmpPath = path.join(
+      os.tmpdir(),
+      `signalk-database-${id}-${randomBytes(8).toString("hex")}.sqlite`,
+    );
+
+    try {
+      try {
+        registry.vacuumInto(id, tmpPath);
+      } catch (err) {
+        const msg = errMessage(err);
+        if (
+          msg.startsWith("database not found") ||
+          msg.startsWith("invalid id")
+        ) {
+          res.status(404).json({ error: msg });
+        } else {
+          res.status(500).json({ error: msg });
+        }
+        return;
+      }
+
+      const stat = fs.statSync(tmpPath);
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Length", String(stat.size));
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${id}.sqlite"`,
+      );
+
+      await pipeline(createReadStream(tmpPath), res);
+    } catch (err) {
+      // If headers already went out, the connection is the best we can do.
+      if (!res.headersSent) {
+        res.status(500).json({ error: errMessage(err) });
+      } else {
+        res.end();
+      }
+    } finally {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {
+        // tempfile may not exist if VACUUM INTO failed before writing;
+        // unlink failure here is not actionable.
+      }
     }
   });
 
