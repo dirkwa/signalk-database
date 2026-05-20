@@ -1,6 +1,6 @@
 {
   "name": "signalk-database",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SQLite library + admin UI for SignalK plugins: import { openPluginDb } from 'signalk-database' to get an isolated per-plugin database",
   "type": "module",
   "main": "dist/plugin/index.js",
